@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0-beta-2499",
+  "compile": [],
+  "dependencies": {
+    "Shaman.Configuration.Metadata": "1.0.0-beta-4922",
+    "Shaman.Curves": "1.0.0-beta-3450",
+    "Shaman.Reflection": "1.0.0.7",
+    "Newtonsoft.Json": "6.0.5"
+  },
+  "projectUrl": "http://shaman.io",
+  "iconUrl": "http://shaman.io/images/shaman-nuget-icon.png",
+  "authors": [
+    "Andrea Martinelli"
+  ],
+  "description": "Provides a lightweight, strongly typed configuration mechanism.",
+  "compilationOptions": {
+    "keyFile": "ShamanOpenSourceKey.snk",
+    "define": [
+      "STANDALONE"
+    ]
+  },
+  "frameworks": {
+    "net45": {
+      "frameworkAssemblies": {
+        "System.Runtime": "4.0.0.0"
+      }
+    },
+    "dotnet5.4": {
+      "compilationOptions": {
+        "define": [
+          "CORECLR"
+        ]
+      },
+      "dependencies": {
+        "System.IO.FileSystem": "4.0.1-rc2-23616",
+        "System.Runtime.Extensions": "4.0.20",
+        "System.Runtime": "4.0.21-rc2"
+      }
+    }
+  }
+}
