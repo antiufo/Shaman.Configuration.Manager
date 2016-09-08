@@ -14,13 +14,17 @@ namespace Shaman.Runtime
 {
     public static class ConfigurationManager
     {
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static HashSet<Assembly> InitializedConfigurationAssemblies = new HashSet<Assembly>();
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static object lockobj = new object();
-
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static Dictionary<string, object> Overrides;
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static IEnumerable<string> PositionalCommandLineArgs { get; private set; }
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static string _RepositoryDirectory;
 
         static ConfigurationManager()
@@ -66,7 +70,6 @@ namespace Shaman.Runtime
         public static bool IsShamanRepository { get; private set; }
 #endif
 
-        private static bool? IsDnx;
 
         private static string GetLocation(Assembly asm)
         {
@@ -74,17 +77,16 @@ namespace Shaman.Runtime
 
         }
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static Func<Assembly, string> Assembly_get_Location;
 
-        public static string GetPackageVersion(Assembly asm)
+        public static string GetInformationalVersion(Assembly asm)
         {
 
 
-
             var fxpath = Path.GetDirectoryName(GetLocation(typeof(int).GetTypeInfo().Assembly));
-            if (IsDnx == null)
-                IsDnx = File.Exists(Path.Combine(fxpath, "dnx.exe")) || File.Exists(Path.Combine(fxpath, "dnx"));
-
+            
+            /*
             var path = GetLocation(asm);
             if (IsDnx.Value)
             {
@@ -95,18 +97,22 @@ namespace Shaman.Runtime
                     return s[lib - 1];
                 }
             }
-
+            */
             var vers = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
             if (vers != null) return vers.InformationalVersion;
             return null;
 
         }
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static string EntrypointDirectory { get; set; }
-
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static string EntrypointVersionQualifiedPackageName { get; private set; }
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static string EntrypointAssemblyName { get; set; }
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static string EntrypointPackageVersion { get; internal set; }
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static string _machineName;
         public static string MachineName
         {
@@ -116,12 +122,16 @@ namespace Shaman.Runtime
             }
         }
 
+        [StaticFieldCategory(StaticFieldCategory.Configuration)]
         public static event EventHandler ConfigurationReloaded;
 
 
         public static void RefreshConfiguration()
         {
             ReadOverrides();
+#if !STANDALONE
+            configuration = null;
+#endif
             foreach (var item in InitializedConfigurationAssemblies)
             {
                 InitializeInternal(item, true);
@@ -130,8 +140,10 @@ namespace Shaman.Runtime
             if (z != null) z(null, EventArgs.Empty);
         }
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         internal static bool IsPerformanceTest;
 
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static List<string> CommandLineOverrides;
 
 #if CORECLR
@@ -241,7 +253,7 @@ namespace Shaman.Runtime
             }
             z.Reverse();
 
-            if (commandLine.Contains("--Performance")) IsPerformanceTest = true;
+            if (commandLine.Contains("--performance")) IsPerformanceTest = true;
 
             foreach (var dir in z)
             {
@@ -441,6 +453,7 @@ namespace Shaman.Runtime
         }
 
 #if !STANDALONE
+        [StaticFieldCategory(StaticFieldCategory.Configuration)]
         internal static Dictionary<ErrorCategory, ErrorBehavior> errorHandlingOptions = new Dictionary<ErrorCategory, ErrorBehavior>();
 
 
@@ -451,77 +464,69 @@ namespace Shaman.Runtime
 
         [Configuration(PerformanceValue = false)]
         internal static bool Configuration_AlwaysWriteToFile;
-#endif
 
+
+        [RestrictedAccess]
+        [Serializable]
+        public class AssemblyConfiguration
+        {
+            public string AssemblyName;
+            public List<TypeConfiguration> Types;
+        }
+        [RestrictedAccess]
+        [Serializable]
+        public class TypeConfiguration
+        {
+            public string FullName;
+            public List<FieldConfiguration> Fields;
+        }
+        [RestrictedAccess]
+        [Serializable]
+        public class FieldConfiguration
+        {
+            public string FieldName;
+            public object Value;
+        }
+
+        [StaticFieldCategory(StaticFieldCategory.Stable)]
+        internal static List<AssemblyConfiguration> configuration;
+#endif
         private static void InitializeType(Type type)
         {
-
+#if !STANDALONE
+            TypeConfiguration typeConfiguration = null;
+#endif
             foreach (var field in type.GetRuntimeFields())
             {
                 var attr = field.GetCustomAttribute<ConfigurationAttribute>();
                 if (attr != null)
                 {
-                    if (!field.IsStatic)
+                    object value;
+                    if (TryGetValue(field, attr, out value))
                     {
-                        throw new InvalidProgramException("Field " + field.DeclaringType.FullName + "." + field.Name + " should be static because it has a [Configuration] attribute.");
-                    }
-
-
-                    var name = field.Name.StartsWith("Configuration_") ? field.Name.Substring("Configuration_".Length) : field.Name;
-                    var fullName = field.DeclaringType.FullName.Replace('+', '.') + '.' + name;
-
-                    if (attr.HasPerformanceValue && IsPerformanceTest && !(
-                        (attr.CommandLineAlias != null && CommandLineOverrides.Contains(attr.CommandLineAlias)) ||
-                        CommandLineOverrides.Contains(fullName)
-                        ))
-                    {
-                        field.SetValue(null, attr.PerformanceValue);
-                        continue;
-                    }
-
-                    object value = null;
-                    object overr = null;
-
-                    var hasValue = attr.CommandLineAlias != null ? Overrides.TryGetValue(attr.CommandLineAlias, out overr) : false;
-                    if (!hasValue)
-                        hasValue = Overrides.TryGetValue(fullName, out overr);
-
-                    if (hasValue)
-                    {
-                        if (typeof(IList).IsAssignableFrom(field.FieldType))
-                        {
-                            var innerType = field.FieldType.GetInterfaces().First(x => x.GetTypeInfo().IsGenericType && x.GetGenericTypeDefinition() == typeof(IEnumerable<>)).GenericTypeArguments[0];
-                            var concatenated = overr as string;
-
-                            IEnumerable<object> items;
-                            if (concatenated != null)
-                            {
-                                items =
-                                    (concatenated.Length == 0 ? new string[] { } : concatenated.SplitFast(','))
-                                    .Select(x => Convert.ChangeType(x, innerType, CultureInfo.InvariantCulture));
-                            }
-                            else
-                            {
-                                items = (IEnumerable<object>)overr;
-                            }
-                            value = typeof(ConfigurationManager).GetMethod("ConvertArray", BindingFlags.Static | BindingFlags.NonPublic).MakeGenericMethod(innerType).Invoke(null, new object[] { items, field });
-                        }
-                        else if (field.FieldType == typeof(Curve))
-                        {
-                            value = Curve.Parse((string)value);
-                        }
-                        else
-                        {
-                            value = Convert.ChangeType(overr, field.FieldType, CultureInfo.InvariantCulture);
-                        }
                         field.SetValue(null, value);
-                    }
-                    else
-                    {
-                        if (field.FieldType == typeof(Curve))
+#if !STANDALONE
+
+                        if (typeConfiguration == null)
                         {
-                            field.SetValue(null, Curve.CreateNonConfigured());
+                            if (configuration == null) configuration = new List<AssemblyConfiguration>();
+                            var asmname = type.Assembly().GetName().Name;
+                            var asm = configuration.FirstOrDefault(x => x.AssemblyName == asmname);
+                            if (asm == null)
+                            {
+                                asm = new AssemblyConfiguration() { AssemblyName = asmname, Types = new List<TypeConfiguration>() };
+                                configuration.Add(asm);
+                            }
+                            typeConfiguration = asm.Types.FirstOrDefault(x => x.FullName == type.FullName);
+                            if (typeConfiguration == null)
+                            {
+                                typeConfiguration = new TypeConfiguration() { FullName = type.FullName, Fields = new List<FieldConfiguration>() };
+                                asm.Types.Add(typeConfiguration);
+                            }
+                            typeConfiguration.Fields.Add(new FieldConfiguration() { FieldName = field.Name, Value = value });
+
                         }
+#endif
                     }
                 }
             }
@@ -529,6 +534,75 @@ namespace Shaman.Runtime
 
         }
 
+        private static bool TryGetValue(FieldInfo field, ConfigurationAttribute attr, out object finalValue)
+        {
+            if (!field.IsStatic)
+            {
+                throw new InvalidProgramException("Field " + field.DeclaringType.FullName + "." + field.Name + " should be static because it has a [Configuration] attribute.");
+            }
+
+
+            var name = field.Name.StartsWith("Configuration_") ? field.Name.Substring("Configuration_".Length) : field.Name;
+            var fullName = field.DeclaringType.FullName.Replace('+', '.') + '.' + name;
+
+            if (attr.HasPerformanceValue && IsPerformanceTest && !(
+                (attr.CommandLineAlias != null && CommandLineOverrides.Contains(attr.CommandLineAlias)) ||
+                CommandLineOverrides.Contains(fullName)
+                ))
+            {
+                finalValue = attr.PerformanceValue;
+                return true;
+            }
+
+            object value = null;
+            object overr = null;
+
+            var hasValue = attr.CommandLineAlias != null ? Overrides.TryGetValue(attr.CommandLineAlias, out overr) : false;
+            if (!hasValue)
+                hasValue = Overrides.TryGetValue(fullName, out overr);
+
+            if (hasValue)
+            {
+                if (typeof(IList).IsAssignableFrom(field.FieldType))
+                {
+                    var innerType = field.FieldType.GetInterfaces().First(x => x.GetTypeInfo().IsGenericType && x.GetGenericTypeDefinition() == typeof(IEnumerable<>)).GenericTypeArguments[0];
+                    var concatenated = overr as string;
+
+                    IEnumerable<object> items;
+                    if (concatenated != null)
+                    {
+                        items =
+                            (concatenated.Length == 0 ? new string[] { } : concatenated.SplitFast(','))
+                            .Select(x => Convert.ChangeType(x, innerType, CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        items = (IEnumerable<object>)overr;
+                    }
+                    value = typeof(ConfigurationManager).GetMethod("ConvertArray", BindingFlags.Static | BindingFlags.NonPublic).MakeGenericMethodFast(innerType).Invoke(null, new object[] { items, field });
+                }
+                else if (field.FieldType == typeof(Curve))
+                {
+                    value = Curve.Parse((string)value);
+                }
+                else
+                {
+                    value = Convert.ChangeType(overr, field.FieldType, CultureInfo.InvariantCulture);
+                }
+                finalValue = value;
+                return true;
+            }
+            else
+            {
+                if (field.FieldType == typeof(Curve))
+                {
+                    finalValue = Curve.CreateNonConfigured();
+                    return true;
+                }
+            }
+            finalValue = null;
+            return false;
+        }
 
         private static object ConvertArray<T>(IEnumerable<object> items, FieldInfo field)
         {
