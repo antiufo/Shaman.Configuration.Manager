@@ -40,7 +40,7 @@ namespace Shaman
 ```
 
 ## Configuration.json
-```json
+```javascript
 {
     "properties": {
         "Shaman.Example.Example1": 42,
