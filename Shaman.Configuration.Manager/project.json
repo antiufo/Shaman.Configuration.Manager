@@ -1,10 +1,10 @@
 {
-  "version": "1.0.1.1",
+  "version": "1.0.1.2",
   "compile": [],
   "dependencies": {
     "Shaman.Configuration.Metadata": "1.0.1.1",
     "Shaman.Curves": "1.0.1.1",
-    "Shaman.Reflection": "1.0.0.13",
+    "Shaman.Reflection": "1.0.0.20",
     "Newtonsoft.Json": "6.0.5"
   },
   "projectUrl": "http://shaman.io",

@@ -146,6 +146,7 @@ namespace Shaman.Runtime
         [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static List<string> CommandLineOverrides;
 
+
 #if CORECLR
         private static string[] originalCommandLine;
         public static void Install(string[] commandLine)
@@ -237,12 +238,15 @@ namespace Shaman.Runtime
                     EntrypointAssemblyName = Path.GetFileNameWithoutExtension(first);
                 }
             }
+
             var positional = new List<string>();
             Overrides = new Dictionary<string, object>();
 
             var z = new List<string>();
 
             var d = EntrypointDirectory ?? Environment_.CurrentDirectory;
+
+            if (ConfigurationManagerConfig.UseCurrentDirectoryAsSearchRoot) d = Environment_.CurrentDirectory;
             z.Add(d);
             while (true)
             {
@@ -317,13 +321,17 @@ namespace Shaman.Runtime
 
             var json = JsonConvert.DeserializeObject<JObject>(File.ReadAllText(path));
 
-            LoadOverrides(json["properties"]);
+            
             var debugKind = IsDebugBuild ? "debug" : "release";
             var debuggerKind = Debugger.IsAttached ? "attached" : "detached";
-            LoadOverrides(json[debugKind]);
-            LoadOverrides(json[debuggerKind]);
-            LoadOverrides(json[debugKind + "-" + debuggerKind]);
-
+            var entrypoint = EntrypointAssemblyName;
+            foreach (var k in entrypoint != null ? new[] { string.Empty, entrypoint + ":" } : new[] { string.Empty })
+            {
+                LoadOverrides(json[k + "properties"]);
+                LoadOverrides(json[k + debugKind]);
+                LoadOverrides(json[k + debuggerKind]);
+                LoadOverrides(json[k + debugKind + "-" + debuggerKind]);
+            }
         }
 
         private static void LoadOverrides(JToken token)
@@ -396,17 +404,21 @@ namespace Shaman.Runtime
             {
                 if (!InitializedConfigurationAssemblies.Contains(assembly) || force)
                 {
+                    Type[] types;
                     try
                     {
-                        foreach (var type in assembly.GetTypes())
-                        {
-                            InitializeType(type);
-                        }
+                        types = assembly.GetTypes();
                     }
                     catch (ReflectionTypeLoadException ex)
                     {
-                        var first = ex.LoaderExceptions.FirstOrDefault();
-                        throw new Exception(first?.Message ?? "An ReflectionTypeLoadException exception occurred.", first);
+                        types = ex.Types;
+                        //var first = ex.LoaderExceptions.FirstOrDefault();
+                        //throw new Exception(first?.Message ?? "An ReflectionTypeLoadException exception occurred.", first);
+                    }
+                    foreach (var type in types)
+                    {
+                        if (type != null)
+                            InitializeType(type);
                     }
 
 #if !STANDALONE
@@ -608,5 +620,10 @@ namespace Shaman.Runtime
         {
             return field.FieldType.IsArray ? (object)items.Select(x => (T)x).ToArray() : items.Select(x => (T)x).ToList();
         }
+    }
+
+    internal static class ConfigurationManagerConfig
+    {
+        internal static bool UseCurrentDirectoryAsSearchRoot;
     }
 }
