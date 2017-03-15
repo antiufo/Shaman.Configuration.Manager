@@ -171,11 +171,9 @@ namespace Shaman.Runtime
             if (string.Equals(pathFirst, "PkgRun", StringComparison.OrdinalIgnoreCase) || string.Equals(pathFirst, "PkgRun.vshost", StringComparison.OrdinalIgnoreCase))
             {
                 firstCommandLineArgumentIndex++;
-#if CORECLR
-                Sanity.NotImplemented();
-#else
+
                 EntrypointAssemblyName = (string)Assembly.GetEntryAssembly().GetType("PkgRun.Program").GetField("EntrypointAssemblyName", BindingFlags.Public | BindingFlags.Static).GetValue(null);
-#endif
+
                 EntrypointDirectory = Environment_.CurrentDirectory;
             }
             else if (string.Equals(pathFirst, "dnx", StringComparison.OrdinalIgnoreCase))
@@ -259,6 +257,9 @@ namespace Shaman.Runtime
 
             if (commandLine.Contains("--performance")) IsPerformanceTest = true;
 
+            if (ConfigurationManagerConfig.AlternateEntrypointName != null)
+                EntrypointAssemblyName = ConfigurationManagerConfig.AlternateEntrypointName;
+
             foreach (var dir in z)
             {
                 if (Directory.Exists(Path.Combine(dir, ".hg")) || Directory.Exists(Path.Combine(dir, ".git")))
@@ -339,6 +340,10 @@ namespace Shaman.Runtime
             if (token == null) return;
             foreach (var prop in (JObject)token)
             {
+                if (prop.Key.Contains("Sql"))
+                {
+
+                }
                 var subobj = prop.Value as JObject;
                 if (subobj != null)
                 {
@@ -383,11 +388,7 @@ namespace Shaman.Runtime
             IsDebugBuild = debugBuild;
 #endif
 
-#if CORECLR
-            Sanity.NotImplemented();
-#else
             EntrypointAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "Unknown";
-#endif
             var coreasm = typeof(ConfigurationManager).GetTypeInfo().Assembly;
             if (assembly != coreasm)
                 Initialize(coreasm
@@ -415,10 +416,17 @@ namespace Shaman.Runtime
                         //var first = ex.LoaderExceptions.FirstOrDefault();
                         //throw new Exception(first?.Message ?? "An ReflectionTypeLoadException exception occurred.", first);
                     }
+
+#if STANDALONE
+                    var isSandboxesAssembly = false;
+#else
+                    var isSandboxesAssembly = assembly.GetName().Name == "Shaman.DevSandbox";
+#endif
+
                     foreach (var type in types)
                     {
                         if (type != null)
-                            InitializeType(type);
+                            InitializeType(type, isSandboxesAssembly);
                     }
 
 #if !STANDALONE
@@ -503,16 +511,22 @@ namespace Shaman.Runtime
         [StaticFieldCategory(StaticFieldCategory.Stable)]
         internal static List<AssemblyConfiguration> configuration;
 #endif
-        private static void InitializeType(Type type)
+        private static void InitializeType(Type type, bool isSandboxAssembly)
         {
 #if !STANDALONE
             TypeConfiguration typeConfiguration = null;
 #endif
+
             foreach (var field in type.GetRuntimeFields())
             {
                 var attr = field.GetCustomAttribute<ConfigurationAttribute>();
                 if (attr != null)
                 {
+#if SHAMAN
+                    if (isSandboxAssembly && type.FullName.EndsWith("Sandbox") && type.Name.AsValueString().Substring(0, type.Name.Length - "Sandbox".Length) != ConfigurationManagerConfig.AlternateEntrypointName)
+                        attr.CommandLineAlias = null;
+#endif
+
                     object value;
                     if (TryGetValue(field, attr, out value))
                     {
@@ -599,7 +613,9 @@ namespace Shaman.Runtime
                 }
                 else
                 {
-                    value = Convert.ChangeType(overr, field.FieldType, CultureInfo.InvariantCulture);
+                    if ((field.FieldType == typeof(string)) && overr is bool && (bool)overr) overr = string.Empty;
+                    var normalized = Nullable.GetUnderlyingType(field.FieldType) ?? field.FieldType;
+                    value = Convert.ChangeType(overr, normalized, CultureInfo.InvariantCulture);
                 }
                 finalValue = value;
                 return true;
@@ -625,5 +641,6 @@ namespace Shaman.Runtime
     internal static class ConfigurationManagerConfig
     {
         internal static bool UseCurrentDirectoryAsSearchRoot;
+        internal static string AlternateEntrypointName;
     }
 }
