@@ -9,6 +9,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 
 namespace Shaman.Runtime
 {
@@ -23,6 +24,19 @@ namespace Shaman.Runtime
 
         [StaticFieldCategory(StaticFieldCategory.Stable)]
         public static IEnumerable<string> PositionalCommandLineArgs { get; private set; }
+
+        public static string[] GetCommandLineArgs()
+        {
+            return ConfigurationManagerConfig.AlternateCommandLineArgs ?? Environment.GetCommandLineArgs();
+        }
+
+        public static string CommandLine
+        {
+            get
+            {
+                return ConfigurationManagerConfig.AlternateCommandLineString ?? Environment.CommandLine;
+            }
+        }
 
         [StaticFieldCategory(StaticFieldCategory.Stable)]
         private static string _RepositoryDirectory;
@@ -161,7 +175,7 @@ namespace Shaman.Runtime
             //#if CORECLR
             //          var commandLine = originalCommandLine;
             //#else
-            var commandLine = Environment.GetCommandLineArgs();
+            var commandLine = GetCommandLineArgs();
             //#endif
             var first = commandLine[0];
             var firstCommandLineArgumentIndex = 1;
@@ -642,5 +656,22 @@ namespace Shaman.Runtime
     {
         internal static bool UseCurrentDirectoryAsSearchRoot;
         internal static string AlternateEntrypointName;
+        internal static string[] AlternateCommandLineArgs;
+        internal static string AlternateCommandLineString;
+
+        public static void MaybeSaveOrRestoreCommandLineForDebugging(string savedCommandLinePath)
+        {
+            var args = Environment.GetCommandLineArgs();
+            if (args.Contains("--read-saved-commandline"))
+            {
+                var data = File.ReadAllLines(savedCommandLinePath);
+                ConfigurationManagerConfig.AlternateCommandLineString = data[0];
+                ConfigurationManagerConfig.AlternateCommandLineArgs = data.Skip(1).ToArray();
+            }
+            else if (args.Contains("--save-commandline"))
+            {
+                File.WriteAllLines(savedCommandLinePath, new[] { Environment.CommandLine }.Concat(args), Encoding.UTF8);
+            }
+        }
     }
 }
