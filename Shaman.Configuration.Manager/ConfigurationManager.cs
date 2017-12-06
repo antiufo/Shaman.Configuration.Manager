@@ -617,7 +617,8 @@ namespace Shaman.Runtime
                     }
                     else
                     {
-                        items = (IEnumerable<object>)overr;
+                        if (overr is bool b && b) items = new object[0];
+                        else items = (IEnumerable<object>)overr;
                     }
                     value = typeof(ConfigurationManager).GetMethod("ConvertArray", BindingFlags.Static | BindingFlags.NonPublic).MakeGenericMethodFast(innerType).Invoke(null, new object[] { items, field });
                 }
@@ -666,11 +667,12 @@ namespace Shaman.Runtime
             {
                 var data = File.ReadAllLines(savedCommandLinePath);
                 ConfigurationManagerConfig.AlternateCommandLineString = data[0];
-                ConfigurationManagerConfig.AlternateCommandLineArgs = data.Skip(1).ToArray();
+                Directory.SetCurrentDirectory(data[1]);
+                ConfigurationManagerConfig.AlternateCommandLineArgs = data.Skip(2).ToArray();
             }
             else if (args.Contains("--save-commandline"))
             {
-                File.WriteAllLines(savedCommandLinePath, new[] { Environment.CommandLine }.Concat(args), Encoding.UTF8);
+                File.WriteAllLines(savedCommandLinePath, new[] { Environment.CommandLine, Directory.GetCurrentDirectory() }.Concat(args), Encoding.UTF8);
             }
         }
     }
